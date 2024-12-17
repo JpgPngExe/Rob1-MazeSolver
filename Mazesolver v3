@@ -26,6 +26,7 @@ bool once = true;
 bool aligned = false;
 int leftThreshold;
 int rightThreshold;
+int middleThreshold;
 int16_t recursionCheck1;
 int16_t recursionCheck2;
 int16_t alignTryRight;
@@ -71,6 +72,7 @@ void setup()
   delay(100);
   leftThreshold = lineSensorValues[0] + 180; //make a threshold for the 2 linesensors based on their starting position value.
   rightThreshold = lineSensorValues[4] + 180;
+  middleThreshold = lineSensorValues[4] + 180;
   delay(200);
 }
 
@@ -154,6 +156,14 @@ void checkStartMaze() // this function is used once at startup to find the maze 
       once = false; //the function has run, when once is false checkStartMaze will never run again.
       return;      //go out the function.
     }
+    else if (lineSensorValues[2] >= middleThreshold)
+    {
+      turn(90,LEFT);
+      forwards();
+      delay(750);
+      turn(90, RIGHT);
+      forwards();
+    }
   }
 }
 
@@ -207,18 +217,22 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
   {
     turn(90,LEFT);
     forwards();
-    delay(50);
+    delay(150);
     stop();
     turn(90,RIGHT);
+    alignTryLeft = 0;
+    alignToMaze();
   }
 
   if (alignTryRight > 10) //if it has tried to align it to the right more than 10 times it moves a little to the right
   {
     turn(90,RIGHT);
     forwards();
-    delay(50);
+    delay(150);
     stop();
     turn(90,LEFT);
+    alignTryRight = 0;
+    alignToMaze();
   }
   delay(50);
   alignToMaze();  //runs the function again in recursion.
@@ -289,7 +303,10 @@ void solveMaze() //this is the most important function. Since it solves the maze
       turn(90,RIGHT);
       driveDistance(95,FORWARDS);
       turnOnLine(90,RIGHT);
+      counter = 0;
       counter2 = 0;
+      driveDistance(20,FORWARDS);
+
     }
   }
   readLineSensors();                                //it then runs the function again.
