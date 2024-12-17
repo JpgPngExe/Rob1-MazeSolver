@@ -1,0 +1,406 @@
+#include <Wire.h>
+#include <Zumo32U4.h>
+
+
+Zumo32U4Motors motors;
+Zumo32U4LineSensors lineSensors;
+Zumo32U4IMU imu;
+Zumo32U4ButtonA buttonA;
+Zumo32U4ButtonB buttonB;
+Zumo32U4ButtonC buttonC;
+Zumo32U4OLED display;
+Zumo32U4Encoders encoders;
+
+
+#define NUM_SENSORS 5
+uint16_t lineSensorValues[NUM_SENSORS];
+
+//Enumeration with constants used in different functions to tell which way to go.
+enum Direction {FORWARDS, BACKWARDS, LEFT, RIGHT};
+
+#define PI 3.1415926535; //Pi
+float wheelCirc = 39*PI; // change to the circumference that you measured for your robot
+//declared the different variables used in the program.
+int speed = 80;
+bool once = true;
+bool aligned = false;
+int leftThreshold;
+int rightThreshold;
+int16_t recursionCheck1;
+int16_t recursionCheck2;
+int16_t alignTryRight;
+int16_t alignTryLeft;
+int16_t consecutiveLeftTurns;
+int16_t counter = 0;
+int16_t counter2 = 0;
+/* turnAngle is a 32-bit unsigned integer representing the amount
+the robot has turned since the last time turnSensorReset was
+called.  This is computed solely using the Z axis of the gyro, so
+it could be inaccurate if the robot is rotated about the X or Y
+axes.
+Our convention is that a value of 0x20000000 represents a 45
+degree counter-clockwise rotation.  This means that a uint32_t
+can represent any angle between 0 degrees and 360 degrees.  If
+you cast it to a signed 32-bit integer by writing
+(int32_t)turnAngle, that integer can represent any angle between
+-180 degrees and 180 degrees. */
+uint32_t turnAngle = 0;
+
+// turnRate is the current angular rate of the gyro, in units of
+// 0.07 degrees per second.
+int16_t turnRate;
+
+// This is the average reading obtained from the gyro's Z axis
+// during calibration.
+int16_t gyroOffset;
+
+// This variable helps us keep track of how much time has passed
+// between readings of the gyro.
+uint16_t gyroLastUpdate = 0;
+
+int16_t largestValue = 0;
+bool done;
+void setup() 
+{
+  // put your setup code here, to run once:
+  lineSensors.initFiveSensors();
+  Serial.begin(9600);
+  turnSensorSetup();
+  delay(100);
+  readLineSensors();
+  delay(100);
+  leftThreshold = lineSensorValues[0] + 180; //make a threshold for the 2 linesensors based on their starting position value.
+  rightThreshold = lineSensorValues[4] + 180;
+  delay(200);
+}
+
+
+void readLineSensors(){
+  lineSensors.read(lineSensorValues, QTR_EMITTERS_ON);
+}
+
+void stop(){ //function for stopping
+  motors.setSpeeds(0,0);
+}
+
+void forwards(){ //function for going forwards
+  motors.setSpeeds(speed, speed);
+}
+
+void loop() //the loop where the magic happens
+{
+  checkStartMaze();
+  alignToMaze();
+  solveMaze();
+  while(true);
+}
+
+void printSensorValues() //function for displaying the sensor values on the screen and the serial monitor
+{
+    readLineSensors();
+    display.gotoXY(0, 0);
+    display.print(String(lineSensorValues[0]) + "    ");
+    display.gotoXY(0, 1);
+    display.print(String(lineSensorValues[4]) + "    ");
+    Serial.println("Venstre Sensor: " + String(lineSensorValues[0]));
+    Serial.println("Hojre Sensor: " + String(lineSensorValues[4]));
+}
+
+
+void backwards(int time) { //drive bakwards for x amount of time
+  motors.setSpeeds(-speed, -speed);
+  delay(time);
+  stop();
+  delay(50);
+}
+
+void turn(int degrees, Direction direction) //turn function baes on the inputted degrees, and which way iit turns from the enum declared earlier.
+{
+  int way;                    //depending on what is inputtet the way variable changes to turn the robot that direction
+  if (direction == RIGHT)
+  {
+    way = 1;
+  }
+  else if (direction == LEFT)
+  {
+    way = -1;
+  } 
+  turnSensorReset();                                  
+  motors.setSpeeds(way*speed, -way*speed);            //when way is one the left track moves forward, and the right moves backwards making it turn to the right
+  while(abs(getTurnAngleInDegrees()) <= abs(degrees)) //this loop checks if the robot has turned the correct amount
+  {
+    turnSensorUpdate();
+    Serial.println(getTurnAngleInDegrees());
+    if (abs(getTurnAngleInDegrees()) > abs(degrees)) //if the robot has turned too much it will turn back until its correct.
+    {
+      motors.setSpeeds(-way*speed, way*speed);
+    }
+  }
+  stop();
+  delay(100);
+}
+
+void checkStartMaze() // this function is used once at startup to find the maze (line)
+{
+  while(once) //this is to ensure it only runs once no matter what
+  {
+    printSensorValues();
+    forwards();
+    readLineSensors();  //read the sensors before checking if the robot is on the sensors.
+    if(lineSensorValues[0] >= leftThreshold || lineSensorValues[4] >= rightThreshold) //if one of the sensors are over their respective thresholds they have found the line
+    {
+      stop();
+      delay(100);
+      once = false; //the function has run, when once is false checkStartMaze will never run again.
+      return;      //go out the function.
+    }
+  }
+}
+
+void turnOnLine(int degrees, Direction direction) //this function turns the robot after driving a little forward, which will then make it be on the line after, or atleast close.
+{
+  stop();
+  forwards();
+  delay(180);
+  stop();
+  delay(100);
+  turn(degrees, direction);
+}
+
+void alignToMaze() //this function aligns the robot to the line. Meaning both sensors are on the line, which then turns the robot getting ready to solve the maze.
+{
+  recursionCheck1++; //sets recursionCheck1 =recursionCheck1+1. which means the function has been run once more.
+  readLineSensors();
+  if (lineSensorValues[0] > leftThreshold && lineSensorValues[4] > rightThreshold) //check if both sensors are on the line
+  {
+    aligned = true;           //this bool is to check whether the robot is aligned.
+    display.gotoXY(0, 0);
+    display.print("aligned"); 
+    turnOnLine(90,LEFT);      //turns 90 degrees to the left.
+    return;
+  }
+  else if(recursionCheck1 > 100 || aligned) //if the function has run 100 times or it is aligned leave the function
+  {
+    return;
+  }
+
+  if (lineSensorValues[0] > leftThreshold) //checks if the left sensor i on the line, where it then turns a little to the left
+  {
+    backwards(300);
+    turn(4,LEFT);
+    delay(100);
+    forwards();
+    readLineSensors();
+    alignTryLeft++;
+  }
+  if (lineSensorValues[4] > rightThreshold) //checks if the right sensor i on the line, where it then turns a little to the right
+  {
+    backwards(300);
+    turn(5,RIGHT);
+    delay(100);
+    forwards();
+    readLineSensors();
+    alignTryRight++;
+  }
+
+  if (alignTryLeft > 10) //if it has tried to align it to the left more than 10 times it moves a little to the left
+  {
+    turn(90,LEFT);
+    forwards();
+    delay(50);
+    stop();
+    turn(90,RIGHT);
+  }
+
+  if (alignTryRight > 10) //if it has tried to align it to the right more than 10 times it moves a little to the right
+  {
+    turn(90,RIGHT);
+    forwards();
+    delay(50);
+    stop();
+    turn(90,LEFT);
+  }
+  delay(50);
+  alignToMaze();  //runs the function again in recursion.
+}
+
+void solveMaze() //this is the most important function. Since it solves the maze
+{
+  display.gotoXY(0, 0);
+  display.print("Solving"); 
+  recursionCheck2++;    //a checker for how many times the function has been run.
+  readLineSensors();
+  if (recursionCheck2 > 200) //if it has run 200 times stop,
+  {
+    display.gotoXY(0, 0);
+    display.print("Done    ");
+    stop();
+    return;
+  }
+
+  while(lineSensorValues[4] > rightThreshold) //while its on the line drive forwards
+  {
+    forwards();
+    display.gotoXY(0, 1);
+    display.print("Line    ");
+    readLineSensors();
+    if (lineSensorValues[0] > leftThreshold && lineSensorValues[4] > rightThreshold) //if both sensors are on the line turn left
+    {
+        turnOnLine(90,LEFT);
+    }
+  }
+  stop();
+  while(lineSensorValues[4] < rightThreshold) //while its not on the line                                 
+  {                                           //it turns a little to the right to fix if its not on the line
+    counter++;                                //it then turns a little to the left so it doesnt drive over the line
+    readLineSensors();
+    turn(3,RIGHT);
+    display.gotoXY(0, 1);
+    display.print("Adjusting");
+    if(lineSensorValues[4] > rightThreshold)
+    {
+      delay(25);
+      readLineSensors();
+      if(lineSensorValues[4] > rightThreshold)
+      {
+      counter = 0;
+     // turn(1,LEFT);
+      forwards();
+      delay(25);
+      break;
+      }
+    }
+    else if (counter > 4)                             //if it has turned 5 times to the right without finding the line it turns 25 degrees to the left and the drives backwards until it find a line again
+    {
+      turn(25,LEFT);
+      motors.setSpeeds(-speed,-speed);
+      readLineSensors();
+      while(lineSensorValues[4] < rightThreshold)
+      {
+        readLineSensors();
+      }
+      counter = 0;
+      counter2++;
+      stop();
+    }
+    else if(counter2 > 3)                           //if it has already turned back and driven backwards 3 times and it still cant find the line, it drives forwards and then does a series of turns
+    {                                               //to be at the other side of the same line.
+      driveDistance(120,FORWARDS);
+      turn(90,RIGHT);
+      driveDistance(95,FORWARDS);
+      turnOnLine(90,RIGHT);
+      counter2 = 0;
+    }
+  }
+  readLineSensors();                                //it then runs the function again.
+  delay(25); 
+  solveMaze();
+}
+//since there is no way to tell if it has completed a maze, yet alone entered it, it will keep running through the function until it has reached the recursion limit.
+
+void driveDistance(int distance, Direction direction) //this function uses the getDistance() function to drive a certain distance and direction.
+{
+  float start = getDistance(); 
+  int way;
+  if (direction == FORWARDS)
+  {
+    way = 1;
+  }
+  else if (direction == BACKWARDS)
+  {
+    way = -1;
+  } 
+  motors.setSpeeds(way*speed, way*speed);
+  while(abs(getDistance() - start) <= distance);
+  stop();
+}
+
+void turnSensorSetup()                //this function does some funky shit which gets thegyroscope ready
+{
+  Wire.begin();
+  imu.init();
+  imu.enableDefault();
+  imu.configureForTurnSensing();
+
+  display.clear();
+  display.print(F("Gyro cal"));
+
+  // Turn on the yellow LED in case the display is not available.
+  ledYellow(1);
+
+  // Delay to give the user time to remove their finger.
+  delay(500);
+
+  // Calibrate the gyro.
+  int32_t total = 0;
+  for (uint16_t i = 0; i < 1024; i++)
+  {
+    // Wait for new data to be available, then read it.
+    while(!imu.gyroDataReady()) {}
+    imu.readGyro();
+
+    // Add the Z axis reading to the total.
+    total += imu.g.z;
+  }
+  ledYellow(0);
+  gyroOffset = total / 1024;
+
+  // Display the angle (in degrees from -180 to 180) until the
+  // user presses A.
+  display.clear();
+  turnSensorReset();
+}
+
+// This should be called to set the starting point for measuring
+// a turn.  After calling this, turnAngle will be 0.
+void turnSensorReset()                                                    //this function resets the gyroscope value, which is important since there are some gyro shift, which means if the sensor
+{                                                                         // isnt reset often enough, it might turn wrongly
+  gyroLastUpdate = micros();
+  turnAngle = 0;
+}
+
+// Read the gyro and update the angle.  This should be called as
+// frequently as possible while using the gyro to do turns.
+void turnSensorUpdate()                                                   //this updates the gyroscope, it is needed to run before checking the gyroscopic value, e.g. in while loops where
+{                                                                         //the loop is dependent on the sensor values.
+  // Read the measurements from the gyro.
+  imu.readGyro();
+  turnRate = imu.g.z - gyroOffset;
+
+  // Figure out how much time has passed since the last update (dt)
+  uint16_t m = micros();
+  uint16_t dt = m - gyroLastUpdate;
+  gyroLastUpdate = m;
+
+  // Multiply dt by turnRate in order to get an estimation of how
+  // much the robot has turned since the last update.
+  // (angular change = angular velocity * time)
+  int32_t d = (int32_t)turnRate * dt;
+
+  // The units of d are gyro digits times microseconds.  We need
+  // to convert those to the units of turnAngle, where 2^29 units
+  // represents 45 degrees.  The conversion from gyro digits to
+  // degrees per second (dps) is determined by the sensitivity of
+  // the gyro: 0.07 degrees per second per digit.
+  //
+  // (0.07 dps/digit) * (1/1000000 s/us) * (2^29/45 unit/degree)
+  // = 14680064/17578125 unit/(digit*us)
+  turnAngle += (int64_t)d * 14680064 / 17578125;
+}
+
+int32_t getTurnAngleInDegrees(){                                                      //this function return the angle in degrees
+  turnSensorUpdate();
+  // do some math and pointer magic to turn angle in seconds to angle in degree
+  return (((int32_t)turnAngle >> 16) * 360) >> 16;
+}
+
+float getDistance(){                                                                      //this function checks the encoders, averages both encoders, before calculating the distance in mm.
+// Example for reading out the count from the wheels. Uncomment, compile and try out.     // its in milimeters because the float wheelCric is in mm.
+// Open the serial monitor and move the wheels by hand.
+
+  int countsL = encoders.getCountsLeft();
+  int countsR = encoders.getCountsRight();
+  float rotation = (countsL+countsR)/2;
+  float distance = (rotation / 910)*wheelCirc;
+  return distance; // change to the distance calculated by your code
+}
