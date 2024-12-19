@@ -24,16 +24,15 @@ float wheelCirc = 39*PI; // change to the circumference that you measured for yo
 int speed = 80;
 bool once = true;
 bool aligned = false;
-int leftThreshold;
-int rightThreshold;
-int middleThreshold;
-int16_t recursionCheck1;
-int16_t recursionCheck2;
-int16_t alignTryRight;
-int16_t alignTryLeft;
-int16_t consecutiveLeftTurns;
-int16_t counter = 0;
-int16_t counter2 = 0;
+int16_t leftThreshold;
+int16_t rightThreshold;
+int16_t middleThreshold;
+uint8_t recursionCheck1;
+uint8_t recursionCheck2;
+int8_t alignTryRight;
+int8_t alignTryLeft;
+int8_t counter = 0;
+int8_t counter2 = 0;
 /* turnAngle is a 32-bit unsigned integer representing the amount
 the robot has turned since the last time turnSensorReset was
 called.  This is computed solely using the Z axis of the gyro, so
@@ -72,7 +71,7 @@ void setup()
   delay(100);
   leftThreshold = lineSensorValues[0] + 180; //make a threshold for the 2 linesensors based on their starting position value.
   rightThreshold = lineSensorValues[4] + 180;
-  middleThreshold = lineSensorValues[4] + 180;
+  middleThreshold = lineSensorValues[4] + 180; //threshold for the middle linesensor.
   delay(200);
 }
 
@@ -156,8 +155,8 @@ void checkStartMaze() // this function is used once at startup to find the maze 
       once = false; //the function has run, when once is false checkStartMaze will never run again.
       return;      //go out the function.
     }
-    else if (lineSensorValues[2] >= middleThreshold)
-    {
+    else if (lineSensorValues[2] >= middleThreshold) //if the middle sensor has seen something, and the other 2 hasn't. it most likely hit a corner.
+    {                                                //  Do a series of movements which moves the robot away and the ntry again.
       turn(90,LEFT);
       forwards();
       delay(750);
@@ -194,7 +193,7 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
     return;
   }
 
-  if (lineSensorValues[0] > leftThreshold) //checks if the left sensor i on the line, where it then turns a little to the left
+  if (lineSensorValues[0] > leftThreshold) //checks if the left sensor is on the line, where it then turns a little to the left
   {
     backwards(300);
     turn(4,LEFT);
@@ -203,7 +202,7 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
     readLineSensors();
     alignTryLeft++;
   }
-  if (lineSensorValues[4] > rightThreshold) //checks if the right sensor i on the line, where it then turns a little to the right
+  if (lineSensorValues[4] > rightThreshold) //checks if the right sensor is on the line, where it then turns a little to the right
   {
     backwards(300);
     turn(5,RIGHT);
@@ -241,13 +240,13 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
 void solveMaze() //this is the most important function. Since it solves the maze
 {
   display.gotoXY(0, 0);
-  display.print("Solving"); 
+  display.print("Solving"); //debug 
   recursionCheck2++;    //a checker for how many times the function has been run.
   readLineSensors();
   if (recursionCheck2 > 200) //if it has run 200 times stop,
   {
     display.gotoXY(0, 0);
-    display.print("Done    ");
+    display.print("Done    "); //more debug
     stop();
     return;
   }
@@ -256,7 +255,7 @@ void solveMaze() //this is the most important function. Since it solves the maze
   {
     forwards();
     display.gotoXY(0, 1);
-    display.print("Line    ");
+    display.print("Line    "); //even more debug 
     readLineSensors();
     if (lineSensorValues[0] > leftThreshold && lineSensorValues[4] > rightThreshold) //if both sensors are on the line turn left
     {
@@ -265,8 +264,8 @@ void solveMaze() //this is the most important function. Since it solves the maze
   }
   stop();
   while(lineSensorValues[4] < rightThreshold) //while its not on the line                                 
-  {                                           //it turns a little to the right to fix if its not on the line
-    counter++;                                //it then turns a little to the left so it doesnt drive over the line
+  {                                           //it turns a little to the right to get back on the line
+    counter++;                                
     readLineSensors();
     turn(3,RIGHT);
     display.gotoXY(0, 1);
@@ -275,16 +274,16 @@ void solveMaze() //this is the most important function. Since it solves the maze
     {
       delay(25);
       readLineSensors();
-      if(lineSensorValues[4] > rightThreshold)
+      if(lineSensorValues[4] > rightThreshold) //the reason there are 2 if statements, is to check twice if it has reached the line
       {
-      counter = 0;
-      forwards();
+      counter = 0;                             //resets the counter since it has found the line
+      forwards();                              //drive a little forwards
       delay(25);
-      break;
+      break;                                  //exit while(lineSensorValues[4] < rightThreshold) to make sure it checks the other while and if statements again
       }
     }
 
-    else if (counter > 4)                             //if it has turned 5 times to the right without finding the line it turns 25 degrees to the left and the drives backwards until it find a line again
+    else if (counter > 4)                             //if it has turned 5 times to the right without finding the line it turns 25 degrees to the left and the drives backwards until it finds a line again
     {
       turn(25,LEFT);
       motors.setSpeeds(-speed,-speed);
@@ -317,7 +316,7 @@ void solveMaze() //this is the most important function. Since it solves the maze
 
 void driveDistance(int distance, Direction direction) //this function uses the getDistance() function to drive a certain distance and direction.
 {
-  float start = getDistance(); 
+  float start = getDistance();                        //make a float with the distance that has been driven
   int way;
   if (direction == FORWARDS)
   {
@@ -328,11 +327,11 @@ void driveDistance(int distance, Direction direction) //this function uses the g
     way = -1;
   } 
   motors.setSpeeds(way*speed, way*speed);
-  while(abs(getDistance() - start) <= distance);
+  while(abs(getDistance() - start) <= distance);      //while the robot hasn't driven the distance given, it drives either forwards or backwards depending on the input.
   stop();
 }
 
-void turnSensorSetup()                //this function does some funky shit which gets thegyroscope ready
+void turnSensorSetup()                               //this function does some funky shit which gets the gyroscope ready
 {
   Wire.begin();
   imu.init();
@@ -405,7 +404,7 @@ void turnSensorUpdate()                                                   //this
   turnAngle += (int64_t)d * 14680064 / 17578125;
 }
 
-int32_t getTurnAngleInDegrees(){                                                      //this function return the angle in degrees
+int32_t getTurnAngleInDegrees(){                                                      //this function returns the angle in degrees
   turnSensorUpdate();
   // do some math and pointer magic to turn angle in seconds to angle in degree
   return (((int32_t)turnAngle >> 16) * 360) >> 16;
