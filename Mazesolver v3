@@ -221,7 +221,7 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
     stop();
     turn(90,RIGHT);
     alignTryLeft = 0;
-    alignToMaze();
+    forwards();
   }
 
   if (alignTryRight > 10) //if it has tried to align it to the right more than 10 times it moves a little to the right
@@ -232,7 +232,7 @@ void alignToMaze() //this function aligns the robot to the line. Meaning both se
     stop();
     turn(90,LEFT);
     alignTryRight = 0;
-    alignToMaze();
+    forwards();
   }
   delay(50);
   alignToMaze();  //runs the function again in recursion.
@@ -278,12 +278,12 @@ void solveMaze() //this is the most important function. Since it solves the maze
       if(lineSensorValues[4] > rightThreshold)
       {
       counter = 0;
-     // turn(1,LEFT);
       forwards();
       delay(25);
       break;
       }
     }
+
     else if (counter > 4)                             //if it has turned 5 times to the right without finding the line it turns 25 degrees to the left and the drives backwards until it find a line again
     {
       turn(25,LEFT);
